@@ -5,8 +5,56 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 admin.initializeApp();
 
+exports.onInventoryChange = functions.database.ref('/CompanyDatabase/Inventory/{inventoryId}')
+.onUpdate((snapshot, context) => {
+  // const snap_before = snapshot.before().val();
+  const snap_after = snapshot.after.val();
+  const inventoryId = context.params.inventoryId;
+  if(snap_after.Stock < snap_after.Min_Stock){
+    console.log("Alerting All technicians");
+    // const title = snap_after.InvID;
+    const StockDeficiency = snap_after.Min_Stock - snap_after.Stock;
+    const payload = {
+      notification : {
+        title : "Inventory Id: " + inventoryId,
+        body : "Stock is below Minm Reqd Level"
+      },
+      data : {
+        title : "Insufficient Stock",
+        body : JSON.stringify({
+          inventoryId : inventoryId,
+          StockDeficiency : String(StockDeficiency)
+        })
+      }
+    };
+  
+    sendPayloadToAllTechnicians(payload).then(res => {
+      console.log("Msg sent Successfully :",res);
+      return null
+    }).catch(err => {
+      console.log("Sending Failed :",err)
+    })
+  }
+  return null;
+})
+
+async function sendPayloadToAllTechnicians(payload){
+  const tokens = [];
+  const prom = await admin.database().ref('/CompanyDatabase/EmployeeDetails')
+    .once('value', snapshot => {
+        snapshot.forEach(child => {
+          // console.log(child.key,child.val())
+          tokens.push(child.val().Token);
+        })
+  })
+  // console.log("tokens :" ,tokens);
+  // const t = admin.database().ref('/CompanyDatabase/EmployeeDetails').on()
+  return admin.messaging().sendToDevice(tokens,payload);
+}
+
+
 exports.onTempCreate = functions.database.ref('/sensor/temp/{bId}/{pId}')
-.onWrite( (snapshot, context) => {
+.onWrite((snapshot, context) => {
   
   const threshold = 85;
   const boilerId = context.params.bId;
